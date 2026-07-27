@@ -1,42 +1,42 @@
-# ==============================================================================
-# 1. CONFIGURATION & PARAMETERS
-# ==============================================================================
-from google.colab import drive
-import pandas as pd
 import os
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.colors as pc
+import plotly.graph_objs as go
+import plotly.express as px
+from itertools import cycle
 from natsort import natsorted
-from sklearn.preprocessing import LabelEncoder
 from scipy.signal import savgol_filter
+from scipy.spatial.distance import euclidean, cityblock, chebyshev, canberra, braycurtis, cosine, minkowski
+from sklearn.preprocessing import LabelEncoder
 from sklearn.decomposition import PCA
+from sklearn.cross_decomposition import PLSRegression
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.metrics import accuracy_score
 from sklearn.pipeline import Pipeline
-from sklearn.cross_decomposition import PLSRegression
-from scipy.spatial.distance import euclidean, cityblock, chebyshev, canberra, braycurtis, cosine, minkowski
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.colors as pc
-import plotly.graph_objs as go
+from google.colab import drive
 from google.colab import files
 from IPython.display import display
-import plotly.express as px
-from plotly.colors import qualitative
-from itertools import cycle
 
 # Mount Google Drive
 drive.mount('/content/drive')
 
+# ==============================================================================
+# 1. CONFIGURATION & PARAMETERS
+# ==============================================================================
+
 # Data Configuration
-FORCE_RELOAD_TRAIN = False  
+FORCE_RELOAD_TRAIN = False
 mir_ranges = [(600, 1800), (2400, 4000)]
 manual_label_map = {
     # Manually assign labels to drug groups if necessary
 }
 
-# Train Data Paths
+# Train and Test Data Paths
 train_paths = [
     # Insert train data paths here
 ]
@@ -58,9 +58,11 @@ distance_metrics_list = ['euclidean', 'manhattan', 'chebyshev', 'cosine', 'brayc
 k_range_list = range(1, 11)
 threshold_multiplier = 1.3
 
+
 # ==============================================================================
-# 2. DATA LOADING AND PREPROCESSING FUNCTIONS
+# 2. FUNCTION DEFINITIONS: DATA PREPROCESSING
 # ==============================================================================
+
 def load_and_preprocess_data(folder_paths, mir_ranges=None, manual_label_map=None):
     all_data = {}
     raw_labels = []
@@ -108,9 +110,11 @@ def preprocess_spectra(X, apply_snv=True, apply_deriv=True, window_length=11, po
         X_proc = savgol_filter(X_proc, window_length=wl, polyorder=min(polyorder, wl - 1), deriv=deriv_order, axis=1)
     return np.nan_to_num(X_proc)
 
+
 # ==============================================================================
-# 3. DIMENSIONALITY REDUCTION (PCA/PLS) & OPTIMIZATION PIPELINE
+# 3. FUNCTION DEFINITIONS: ML MODELS & DISTANCE METRICS
 # ==============================================================================
+
 class PCATransformer(BaseEstimator, TransformerMixin):
     def __init__(self, n_components=2):
         self.n_components = n_components
@@ -166,9 +170,6 @@ def optimize_pls_knn(X_train, y_train, metrics=None, k_range=None):
     results = [{'n_components': p['pls__n_components'], 'k': p['knn__n_neighbors'], 'metric': p['knn__metric'], 'accuracy': grid.cv_results_['mean_test_score'][i]} for i, p in enumerate(grid.cv_results_['params'])]
     return grid.best_params_, results, grid
 
-# ==============================================================================
-# 4. DISTANCE CALCULATION AND UNKNOWN THRESHOLDING
-# ==============================================================================
 def advanced_distance(u, v, metric='euclidean'):
     try:
         if metric == 'euclidean': return euclidean(u, v)
@@ -215,7 +216,7 @@ def compute_distance_thresholds(X_train_dr, y_train, encoder, metrics, multiplie
 def predict_with_unknown(knn_model, X_test_dr, encoder, centroids, thresholds, metric, prediction=False):
     y_pred_raw = knn_model.predict(X_test_dr)
     y_pred_labels = encoder.inverse_transform(y_pred_raw)
-    final_labels, all_dists, all_thresholds = [], [], []
+    final_labels, all_dists, all_thresholds = [], []
     for i, x in enumerate(X_test_dr):
         pred_label = y_pred_labels[i]
         centroid = centroids[pred_label]
@@ -233,12 +234,15 @@ def calculate_classification_metrics(df):
     mistake = 1 - correct - unknown
     return pd.Series({'Correct': correct, 'Unknown': unknown, 'Misclassified': mistake, 'Count': len(df)})
 
+
 # ==============================================================================
-# 5. VISUALIZATION FUNCTIONS
+# 4. FUNCTION DEFINITIONS: VISUALIZATION & REPORTS
 # ==============================================================================
-def reduce_dimensionality(X_train, X_test=None, n_components=None, y_train=None):
-    method = plot_params.get('method', 'PLS')
-    if n_components is None: n_components = plot_params['manual_n_components']
+
+def reduce_dimensionality(X_train, X_test=None, n_components=None, y_train=None, plot_params=None):
+    method = plot_params.get('method', 'PLS') if plot_params else 'PLS'
+    if n_components is None and plot_params: n_components = plot_params['manual_n_components']
+    
     if method == 'PCA':
         pca = PCA(n_components=n_components)
         pca.fit(X_train)
@@ -252,9 +256,9 @@ def reduce_dimensionality(X_train, X_test=None, n_components=None, y_train=None)
         if X_test is not None: return X_train_dr, pls.transform(X_test)
         return X_train_dr
 
-def plot_class_accuracy_per_metric(X_train, y_train, encoder, n_components, metrics, k_values):
+def plot_class_accuracy_per_metric(X_train, y_train, encoder, n_components, metrics, k_values, plot_params):
     method_name = plot_params.get('method', 'DR')
-    X_train_dr = reduce_dimensionality(X_train, n_components=n_components, y_train=y_train)
+    X_train_dr = reduce_dimensionality(X_train, n_components=n_components, y_train=y_train, plot_params=plot_params)
     class_names = encoder.classes_
     colors = plt.cm.tab20(np.linspace(0, 1, len(class_names)))
     n_metrics = len(metrics)
@@ -304,49 +308,7 @@ def plot_class_accuracy_per_metric(X_train, y_train, encoder, n_components, metr
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
-def plot_class_accuracy_per_metric_on_test(X_train, y_train, X_test, y_test, n_components, metrics, k_range, encoder):
-    method_name = plot_params.get('method', 'DR')
-    X_train_dr, X_test_dr = reduce_dimensionality(X_train, X_test, n_components, y_train)
-    class_names = encoder.classes_
-    colors = plt.cm.tab20(np.linspace(0, 1, len(class_names)))
-    n_metrics = len(metrics)
-    ncols = min(3, n_metrics)
-    nrows = (n_metrics + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(20, 6 * nrows))
-    if n_metrics > 1: axes = axes.flatten()
-    else: axes = [axes]
-    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
-    line_styles = ['-', '--', '-.', ':']
-
-    for idx, metric in enumerate(metrics):
-        if idx >= len(axes): break
-        ax = axes[idx]
-        ax.set_title(f'Distance: {metric.upper()}', fontsize=14)
-        ax.set_xlabel('Number of neighbors (k)', fontsize=12)
-        ax.set_ylabel('Test Accuracy', fontsize=12)
-        ax.set_xticks(k_range)
-        ax.grid(True, linestyle='--', alpha=0.7)
-        ax.set_ylim(0, 1.05)
-        class_accuracies = {cls: [] for cls in class_names}
-        for k in k_range:
-            knn = KNeighborsClassifier(n_neighbors=k, metric=metric)
-            knn.fit(X_train_dr, y_train)
-            y_pred = knn.predict(X_test_dr)
-            for cls in class_names:
-                cls_encoded = encoder.transform([cls])[0]
-                mask = (y_test == cls_encoded)
-                if np.sum(mask) > 0: class_accuracies[cls].append(accuracy_score(y_test[mask], y_pred[mask]))
-                else: class_accuracies[cls].append(0)
-
-        for i, cls in enumerate(class_names):
-            ax.plot(k_range, class_accuracies[cls], marker=markers[i % len(markers)], linestyle=line_styles[i % len(line_styles)], color=colors[i], label=cls, markersize=6, linewidth=1.5)
-        if idx == 0: ax.legend(loc='lower right', fontsize=9, ncol=2)
-    for j in range(idx + 1, len(axes)): axes[j].axis('off')
-    plt.suptitle(f'TEST ACCURACY PER CLASS BY K ({method_name}={n_components})', fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    plt.show()
-
-def plot_accuracy_at_optimal_n(optimization_results, best_n_components, k_range):
+def plot_accuracy_at_optimal_n(optimization_results, best_n_components, k_range, plot_params):
     method_name = plot_params.get('method', 'DR')
     df = pd.DataFrame(optimization_results)
     df_optimal_n = df[df['n_components'] == best_n_components]
@@ -365,28 +327,6 @@ def plot_accuracy_at_optimal_n(optimization_results, best_n_components, k_range)
     plt.xticks(list(k_range), fontsize=10)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(title='Distance')
-    plt.tight_layout()
-
-def plot_test_accuracy_at_optimal_n(X_train, y_train, X_test, y_test, n_components, metrics, k_range, encoder):
-    method_name = plot_params.get('method', 'DR')
-    X_train_dr, X_test_dr = reduce_dimensionality(X_train, X_test, n_components, y_train)
-    plt.figure(figsize=(12, 8))
-    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
-    line_styles = ['-', '--', '-.', ':']
-    colors = plt.cm.tab10(np.linspace(0, 1, len(metrics)))
-    for i, metric in enumerate(metrics):
-        accuracies = []
-        for k in k_range:
-            knn = KNeighborsClassifier(n_neighbors=k, metric=metric)
-            knn.fit(X_train_dr, y_train)
-            accuracies.append(accuracy_score(y_test, knn.predict(X_test_dr)))
-        plt.plot(k_range, accuracies, marker=markers[i % len(markers)], linestyle=line_styles[i % len(line_styles)], color=colors[i], label=metric.upper(), markersize=8, linewidth=2)
-    plt.xlabel('Number of neighbors (k)', fontsize=14)
-    plt.ylabel('Test Accuracy', fontsize=14)
-    plt.title(f'TEST ACCURACY AT N_COMPONENTS ({n_components}) - {method_name}', fontsize=14)
-    plt.xticks(list(k_range))
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(title='Distance Metric')
     plt.tight_layout()
     plt.show()
 
@@ -414,7 +354,7 @@ def plot_distance_boxplot(distances_dict, class_names):
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
-def plot_dr_3d(X_dr, y, raw_labels, encoder, title_suffix="", components=[1, 2, 3], width=1400, height=1000, axis_ratio=(1.2, 1, 0.8)):
+def plot_dr_3d(X_dr, y, raw_labels, encoder, plot_params, title_suffix="", components=[1, 2, 3], width=1400, height=1000, axis_ratio=(1.2, 1, 0.8)):
     method_name = plot_params.get('method', 'DR')
     title = f"{method_name} 3D - {title_suffix}"
     c1, c2, c3 = [c - 1 for c in components]
@@ -437,9 +377,9 @@ def plot_dr_3d(X_dr, y, raw_labels, encoder, title_suffix="", components=[1, 2, 
     )
     fig.show()
 
-def plot_test_accuracy_at_optimal_n_with_threshold(X_train, y_train, X_test, y_test, encoder, n_components, metrics, k_range, threshold_multiplier=1.5):
+def plot_test_accuracy_at_optimal_n_with_threshold(X_train, y_train, X_test, y_test, test_group_labels, encoder, n_components, metrics, k_range, plot_params, threshold_multiplier=1.5):
     method_name = plot_params.get('method', 'DR')
-    X_train_dr, X_test_dr = reduce_dimensionality(X_train, X_test, n_components, y_train)
+    X_train_dr, X_test_dr = reduce_dimensionality(X_train, X_test, n_components, y_train, plot_params)
     plt.figure(figsize=(12, 8))
     markers, line_styles = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h'], ['-', '--', '-.', ':']
     colors = plt.cm.tab10(np.linspace(0, 1, len(metrics)))
@@ -462,51 +402,6 @@ def plot_test_accuracy_at_optimal_n_with_threshold(X_train, y_train, X_test, y_t
     plt.tight_layout()
     plt.show()
 
-def plot_class_accuracy_per_metric_on_test_with_threshold(X_train, y_train, X_test, y_test, encoder, n_components, metrics, k_range, threshold_multiplier=1.5):
-    method_name = plot_params.get('method', 'DR')
-    class_names = encoder.classes_
-    X_train_dr, X_test_dr = reduce_dimensionality(X_train, X_test, n_components, y_train)
-    n_metrics = len(metrics)
-    ncols = min(3, n_metrics)
-    nrows = (n_metrics + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(20, 6 * nrows))
-    if n_metrics > 1: axes = axes.flatten()
-    else: axes = [axes]
-    markers, line_styles = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h'], ['-', '--', '-.', ':']
-    colors = plt.cm.tab20(np.linspace(0, 1, len(class_names)))
-
-    for idx, metric in enumerate(metrics):
-        if idx >= len(axes): break
-        ax = axes[idx]
-        ax.set_title(f'Distance: {metric}', fontsize=14)
-        ax.set_xlabel('Number of neighbors (k)')
-        ax.set_ylabel('Test Accuracy')
-        ax.set_xticks(k_range)
-        ax.grid(True, linestyle='--', alpha=0.7)
-        ax.set_ylim(0, 1.05)
-        class_accuracies = {cls: [] for cls in class_names}
-
-        for k in k_range:
-            knn = KNeighborsClassifier(n_neighbors=k, metric=metric)
-            knn.fit(X_train_dr, y_train)
-            centroids, thresholds, _ = compute_distance_thresholds(X_train_dr, y_train, encoder, [metric], multiplier=threshold_multiplier)
-            y_pred_labels_with_unknown, _, _ = predict_with_unknown(knn, X_test_dr, encoder, centroids, thresholds, metric)
-            for cls in class_names:
-                total = sum([1 for t in test_group_labels if t == cls])
-                correct = sum([1 for i, t in enumerate(test_group_labels) if t == cls and y_pred_labels_with_unknown[i] == cls])
-                class_accuracies[cls].append(correct / total if total > 0 else 0)
-
-        for i, cls in enumerate(class_names):
-            ax.plot(k_range, class_accuracies[cls], marker=markers[i % len(markers)], linestyle=line_styles[i % len(line_styles)], color=colors[i], label=cls, markersize=6, linewidth=1.5)
-        if idx == 0: ax.legend(loc='lower right', fontsize=9, ncol=2)
-    for j in range(idx + 1, len(axes)): axes[j].axis('off')
-    plt.suptitle(f'TEST ACCURACY PER CLASS (WITH THRESHOLD) BY K ({method_name}={n_components})', fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    plt.show()
-
-# ==============================================================================
-# 6. REPORT GENERATION FUNCTIONS
-# ==============================================================================
 def generate_report(results_df, method_name, best_k, metric):
     class_metrics = results_df.groupby('Actual Label', group_keys=False).apply(calculate_classification_metrics).reset_index()
     class_metrics.rename(columns={'Actual Label': 'Class'}, inplace=True)
@@ -535,7 +430,9 @@ def generate_report(results_df, method_name, best_k, metric):
     plt.show()
 
     report_df = class_metrics[['Class', 'Count']].copy()
-    report_df['Correct (%)'], report_df['Misclassified (%)'], report_df['Unknown (%)'] = class_metrics['Correct'] * 100, class_metrics['Misclassified'] * 100, class_metrics['Unknown'] * 100
+    report_df['Correct (%)'] = class_metrics['Correct'] * 100
+    report_df['Misclassified (%)'] = class_metrics['Misclassified'] * 100
+    report_df['Unknown (%)'] = class_metrics['Unknown'] * 100
     report_df['Best K'], report_df['Metric'] = best_k, metric
 
     print(f"\n[COMPREHENSIVE REPORT {method_name}]:")
@@ -545,19 +442,18 @@ def generate_report(results_df, method_name, best_k, metric):
     summary_path = f"/content/accuracy_report_{method_name}.xlsx"
     results_df.to_excel(detailed_path, index=False)
     report_df.to_excel(summary_path, index=False)
-    print(f"Reports saved to system:\n- {detailed_path}\n- {summary_path}")
+    print(f"Reports successfully saved to system:\n- {detailed_path}\n- {summary_path}")
     files.download(detailed_path)
     files.download(summary_path)
 
-# ==============================================================================
-# 7. LAYER 1 - TRAIN PCA + KNN EXECUTION
-# ==============================================================================
-print("="*50)
-print("[LAYER 1] RUNNING TRAINING: PCA + kNN")
-print("="*50)
 
-# Load Train Data
-print("Loading and preprocessing train data...")
+# ==============================================================================
+# 5. TRAINING (LAYER 1: PCA & 2: PLS)
+# ==============================================================================
+
+print("="*50)
+print("LOADING TRAIN DATA")
+print("="*50)
 train_df, train_raw_labels, train_group_labels = load_and_preprocess_data(train_paths, mir_ranges, manual_label_map)
 master_wavenumbers = train_df.index
 X_train = train_df.T.to_numpy()
@@ -566,7 +462,9 @@ y_train = encoder.fit_transform(train_group_labels)
 X_train_proc = preprocess_spectra(X_train, apply_snv=True, apply_deriv=True)
 print(f"Loading complete. Train classes: {encoder.classes_}")
 
-# Training and Optimization
+print("\n" + "="*50)
+print("[LAYER 1] RUNNING TRAINING: PCA + kNN")
+print("="*50)
 mode_pca = detect_mode(pca_manual_n_components, pca_manual_k_neighbors, pca_custom_metric)
 
 if mode_pca == 'optimal':
@@ -576,6 +474,7 @@ if mode_pca == 'optimal':
         pca_manual_n_components, pca_manual_k_neighbors, pca_custom_metric = best_params_pca['pca__n_components'], best_params_pca['knn__n_neighbors'], best_params_pca['knn__metric']
         print(f"==> OPTIMAL PCA PARAMETERS: n={pca_manual_n_components}, k={pca_manual_k_neighbors}, Metric={pca_custom_metric}")
     except Exception as e:
+        print(f"Optimization error: {e}")
         pca_manual_n_components, pca_manual_k_neighbors, pca_custom_metric = 3, 5, 'euclidean'
         pca_opt_results = None
 elif mode_pca == 'fixed_n':
@@ -590,7 +489,6 @@ else:
     print(f"\nUsing manual parameters: n={pca_manual_n_components}, k={pca_manual_k_neighbors}, Metric={pca_custom_metric}")
     pca_opt_results = None
 
-# Fit Model
 pca_transformer = PCATransformer(n_components=pca_manual_n_components)
 pca_transformer.fit(X_train_proc)
 X_train_pca = pca_transformer.transform(X_train_proc)
@@ -598,18 +496,182 @@ X_train_pca = pca_transformer.transform(X_train_proc)
 pca_knn_model = KNeighborsClassifier(n_neighbors=pca_manual_k_neighbors, metric=pca_custom_metric)
 pca_knn_model.fit(X_train_pca, y_train)
 
-# Setup parameters for visualization functions
-plot_params = {
+plot_params_pca = {
     'method': 'PCA', 'best_n_components': pca_manual_n_components,
     'optimization_results': pca_opt_results, 'manual_n_components': pca_manual_n_components,
     'custom_metric': pca_custom_metric, 'distance_metrics': distance_metrics_list,
     'k_range': k_range_list, 'k_values': list(k_range_list), 'mode': mode_pca
 }
 
-# Plot Training Results
-print("\n[PLOTTING TRAINING SET GRAPHS]")
-plot_dr_3d(X_train_pca, y_train, train_raw_labels, encoder, title_suffix="Training Set (PCA)")
+print("\n[PLOTTING TRAINING SET GRAPHS - PCA]")
+plot_dr_3d(X_train_pca, y_train, train_raw_labels, encoder, plot_params_pca, title_suffix="Training Set (PCA)")
 if pca_opt_results is not None:
-    plot_accuracy_at_optimal_n(pca_opt_results, pca_manual_n_components, k_range_list)
-plot_class_accuracy_per_metric(X_train_proc, y_train, encoder, pca_manual_n_components, [pca_custom_metric], k_range_list)
+    plot_accuracy_at_optimal_n(pca_opt_results, pca_manual_n_components, k_range_list, plot_params_pca)
+plot_class_accuracy_per_metric(X_train_proc, y_train, encoder, pca_manual_n_components, [pca_custom_metric], k_range_list, plot_params_pca)
 print("PCA Training Complete.")
+
+print("\n" + "="*50)
+print("[LAYER 2] RUNNING TRAINING: PLS + kNN")
+print("="*50)
+mode_pls = detect_mode(pls_manual_n_components, pls_manual_k_neighbors, pls_custom_metric)
+
+if mode_pls == 'optimal':
+    print("\nOptimizing PLS and kNN simultaneously...")
+    try:
+        best_params_pls, pls_opt_results, grid_pls = optimize_pls_knn(X_train_proc, y_train, metrics=distance_metrics_list, k_range=k_range_list)
+        pls_manual_n_components, pls_manual_k_neighbors, pls_custom_metric = best_params_pls['pls__n_components'], best_params_pls['knn__n_neighbors'], best_params_pls['knn__metric']
+        print(f"==> OPTIMAL PLS PARAMETERS: n={pls_manual_n_components}, k={pls_manual_k_neighbors}, Metric={pls_custom_metric}")
+    except Exception as e:
+        print(f"Optimization error: {e}")
+        pls_manual_n_components, pls_manual_k_neighbors, pls_custom_metric = 3, 5, 'euclidean'
+        pls_opt_results = None
+elif mode_pls == 'fixed_n':
+    print("\nOptimizing k and metric with fixed n_components...")
+    pipe = Pipeline([('pls', PLSTransformer(n_components=pls_manual_n_components)), ('knn', KNeighborsClassifier())])
+    grid_pls = GridSearchCV(pipe, {'knn__n_neighbors': list(k_range_list), 'knn__metric': distance_metrics_list}, cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=42), scoring='accuracy', n_jobs=-1)
+    grid_pls.fit(X_train_proc, y_train)
+    pls_manual_k_neighbors, pls_custom_metric = grid_pls.best_params_['knn__n_neighbors'], grid_pls.best_params_['knn__metric']
+    pls_opt_results = [{'n_components': pls_manual_n_components, 'k': p['knn__n_neighbors'], 'metric': p['knn__metric'], 'accuracy': grid_pls.cv_results_['mean_test_score'][i]} for i, p in enumerate(grid_pls.cv_results_['params'])]
+    print(f"==> OPTIMAL PLS PARAMETERS (n={pls_manual_n_components}): k={pls_manual_k_neighbors}, Metric={pls_custom_metric}")
+else:
+    print(f"\nUsing manual parameters: n={pls_manual_n_components}, k={pls_manual_k_neighbors}, Metric={pls_custom_metric}")
+    pls_opt_results = None
+
+pls_transformer = PLSTransformer(n_components=pls_manual_n_components)
+pls_transformer.fit(X_train_proc, y_train)
+X_train_pls = pls_transformer.transform(X_train_proc)
+
+pls_knn_model = KNeighborsClassifier(n_neighbors=pls_manual_k_neighbors, metric=pls_custom_metric)
+pls_knn_model.fit(X_train_pls, y_train)
+
+plot_params_pls = {
+    'method': 'PLS', 'best_n_components': pls_manual_n_components,
+    'optimization_results': pls_opt_results, 'manual_n_components': pls_manual_n_components,
+    'custom_metric': pls_custom_metric, 'distance_metrics': distance_metrics_list,
+    'k_range': k_range_list, 'k_values': list(k_range_list), 'mode': mode_pls
+}
+
+print("\n[PLOTTING TRAINING SET GRAPHS - PLS]")
+plot_dr_3d(X_train_pls, y_train, train_raw_labels, encoder, plot_params_pls, title_suffix="Training Set (PLS)")
+if pls_opt_results is not None:
+    plot_accuracy_at_optimal_n(pls_opt_results, pls_manual_n_components, k_range_list, plot_params_pls)
+plot_class_accuracy_per_metric(X_train_proc, y_train, encoder, pls_manual_n_components, [pls_custom_metric], k_range_list, plot_params_pls)
+print("PLS Training Complete.")
+
+# ==============================================================================
+# 6. BATCH TESTING EXECUTION 
+# ==============================================================================
+
+test_paths = [
+    # Insert test data paths here
+]
+    
+print("\n" + "="*50)
+print("[LAYER 1] RUNNING TEST BATCH: PCA + kNN")
+print("="*50)
+
+print("Loading Test data...")
+test_df, test_raw_labels, test_group_labels = load_and_preprocess_data(test_paths, mir_ranges, manual_label_map)
+
+# Use master_wavenumbers from RAM
+test_df = test_df.reindex(master_wavenumbers).fillna(0)
+X_test = test_df.T.to_numpy()
+try:
+    y_test = encoder.transform(test_group_labels)
+except ValueError:
+    y_test = np.zeros(len(test_group_labels))
+X_test_proc = preprocess_spectra(X_test, apply_snv=True, apply_deriv=True)
+print("Test data loading complete.")
+
+X_test_pca = pca_transformer.transform(X_test_proc)
+centroids_pca, thresholds_pca, _ = compute_distance_thresholds(X_train_pca, y_train, encoder, [pca_custom_metric], multiplier=threshold_multiplier)
+y_pred_pca_unk, dists_pca, thresh_pca = predict_with_unknown(pca_knn_model, X_test_pca, encoder, centroids_pca, thresholds_pca, pca_custom_metric)
+
+results_pca = pd.DataFrame({
+    'File': test_raw_labels, 
+    'Actual Label': test_group_labels, 
+    'Predicted Label': y_pred_pca_unk,
+    'Distance': dists_pca, 
+    f'Threshold {int(threshold_multiplier*100)}%': thresh_pca,
+    'Result': ['Correct' if p == t else ('Incorrect' if p != 'unknown' else 'Unknown') for p, t in zip(y_pred_pca_unk, test_group_labels)]
+})
+
+print("\n[PLOTTING TEST SET GRAPHS]")
+plot_dr_3d(X_test_pca, y_test, test_raw_labels, encoder, plot_params_pca, title_suffix="Test Set (PCA)")
+distances_dict_pca = calculate_class_distances(X_train_pca, y_train, X_test_pca, test_group_labels, encoder, distance_metrics_list)
+plot_distance_boxplot(distances_dict_pca, encoder.classes_)
+plot_test_accuracy_at_optimal_n_with_threshold(
+    X_train=X_train_proc, 
+    y_train=y_train, 
+    X_test=X_test_proc, 
+    y_test=y_test, 
+    test_group_labels=test_group_labels, 
+    encoder=encoder, 
+    n_components=pca_manual_n_components, 
+    metrics=distance_metrics_list, 
+    k_range=k_range_list, 
+    plot_params=plot_params_pca, 
+    threshold_multiplier=threshold_multiplier
+)
+
+print("\n[EXPORT REPORT]")
+generate_report(results_pca, "PCA", pca_manual_k_neighbors, pca_custom_metric)
+
+
+# ==============================================================================
+# 7. PREDICTION (SINGLE FILE TEST)
+# ==============================================================================
+
+def test_single_file(file_path, mir_ranges, master_wavenumbers):
+    try: 
+        df = pd.read_csv(file_path, header=None)
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return None
+    mask = np.zeros(len(df), dtype=bool)
+    for start, end in mir_ranges: 
+        mask |= ((df[0] >= start) & (df[0] <= end))
+    df_filtered = df[mask].copy().set_index(0)[1]
+    df_synced = df_filtered.reindex(master_wavenumbers).fillna(0)
+    X_raw = df_synced.to_numpy().reshape(1, -1)
+    return preprocess_spectra(X_raw, apply_snv=True, apply_deriv=True)
+
+print("\n--- STEP 1: UPLOAD NEW SAMPLE FILE ---")
+uploaded = files.upload()
+
+if uploaded:
+    uploaded_file_name = list(uploaded.keys())[0]
+    print(f"\nSuccessfully uploaded file: {uploaded_file_name}")
+    
+    print("\n--- STEP 2: INPUT ACTUAL LABEL ---")
+    true_label_input = input("Please enter the actual label for comparison: ").strip().lower()
+
+    print(f"\n--- STEP 3: PREDICTION RESULTS ---")
+    X_new_proc = test_single_file(uploaded_file_name, mir_ranges, master_wavenumbers)
+
+    if X_new_proc is not None:
+        # Predict using PCA
+        X_new_pca = pca_transformer.transform(X_new_proc)
+        y_pca, d_pca, t_pca = predict_with_unknown(pca_knn_model, X_new_pca, encoder, centroids_pca, thresholds_pca, pca_custom_metric)
+        status_pca = "CORRECT" if y_pca[0] == true_label_input else ("INCORRECT" if y_pca[0] != 'unknown' else "UNKNOWN")
+
+        # Predict using PLS
+        X_new_pls = pls_transformer.transform(X_new_proc)
+        
+        # Ensure PLS thresholds and centroids are computed
+        centroids_pls, thresholds_pls, _ = compute_distance_thresholds(X_train_pls, y_train, encoder, [pls_custom_metric], multiplier=threshold_multiplier)
+        
+        y_pls, d_pls, t_pls = predict_with_unknown(pls_knn_model, X_new_pls, encoder, centroids_pls, thresholds_pls, pls_custom_metric)
+        status_pls = "CORRECT" if y_pls[0] == true_label_input else ("INCORRECT" if y_pls[0] != 'unknown' else "UNKNOWN")
+
+        quick_test_result = pd.DataFrame({
+            'Algorithm': ['PCA Layer 1', 'PLS Layer 2'],
+            'Actual Label': [true_label_input, true_label_input],
+            'Prediction': [y_pca[0], y_pls[0]],
+            'Distance': [f"{d_pca[0]:.4f}", f"{d_pls[0]:.4f}"],
+            'Threshold': [f"{t_pca[0]:.4f}", f"{t_pls[0]:.4f}"],
+            'Result': [status_pca, status_pls]
+        })
+        display(quick_test_result)
+else:
+    print("No file was uploaded.")
